@@ -1,7 +1,46 @@
-# Tauri + React + Typescript
+# Advanced Shortcut
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Windows向けのショートカット管理デスクトップアプリケーション。複数のアクションを組み合わせて、ワンクリックで実行できます。
 
-## Recommended IDE Setup
+## 機能
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+- **アプリ起動**: 指定したアプリケーションを起動（引数・ウィンドウ位置の指定可能）
+- **プロセス終了**: 実行中のプロセスを終了
+- **フォルダを開く**: エクスプローラーでフォルダを開く（ウィンドウ位置の指定可能）
+- **URLを開く**: デフォルトブラウザでURLを開く（新しいウィンドウで開き、位置の指定可能）
+- **遅延**: アクション間に待機時間を挿入
+- **グループ管理**: ショートカットをグループで整理
+- **ドラッグ＆ドロップ**: ショートカットの並び替え
+
+## 技術スタック
+
+- **フロントエンド**: React 19, TypeScript, Tailwind CSS, Framer Motion
+- **バックエンド**: Tauri 2, Rust
+- **ビルドツール**: Vite, Bun
+
+## 必要環境
+
+- Node.js 18+ または Bun
+- Rust 1.70+
+- Windows 10/11
+
+## セットアップ
+
+```bash
+# 依存関係のインストール
+bun install
+
+# 開発モードで起動
+bun tauri dev
+
+# 本番ビルド
+bun tauri build
+```
+
+## データ保存先
+
+アプリデータは以下に保存されます:
+
+```
+%LOCALAPPDATA%\advanced-shortcut\data.json
+```
