@@ -77,7 +77,7 @@ function App() {
   );
 
   const handleReorderShortcuts = useCallback(
-    async (groupId: string, newOrder: Shortcut[]) => {
+    async (_groupId: string, newOrder: Shortcut[]) => {
       const reorderedShortcuts = newOrder.map((s, index) => ({
         ...s,
         order: index,

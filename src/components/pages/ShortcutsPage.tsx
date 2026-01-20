@@ -23,7 +23,7 @@ interface ShortcutsPageProps {
   shortcuts: Shortcut[];
   groups: Group[];
   loading: boolean;
-  onExecute: (shortcut: Shortcut) => Promise<void>;
+  onExecute: (shortcut: Shortcut) => Promise<string[]>;
   onEdit: (shortcut: Shortcut) => void;
   onDelete: (shortcut: Shortcut) => void;
   onCreate: () => void;
@@ -144,7 +144,7 @@ interface GroupSectionProps {
 }
 
 // Wrapper type for stable reordering
-type ShortcutItem = { id: string; shortcut: Shortcut };
+type ShortcutWrapper = { id: string; shortcut: Shortcut };
 
 function GroupSection({
   group,
@@ -158,14 +158,14 @@ function GroupSection({
   onReorder,
 }: GroupSectionProps) {
   // Use wrapper objects with stable IDs for Reorder
-  const [items, setItems] = useState<ShortcutItem[]>([]);
+  const [items, setItems] = useState<ShortcutWrapper[]>([]);
 
   // Sync with props when shortcuts change
   useEffect(() => {
     setItems(shortcuts.map((s) => ({ id: s.id, shortcut: s })));
   }, [shortcuts]);
 
-  const handleReorder = (newItems: ShortcutItem[]) => {
+  const handleReorder = (newItems: ShortcutWrapper[]) => {
     setItems(newItems);
     onReorder(newItems.map((item) => item.shortcut));
   };
@@ -226,7 +226,7 @@ function GroupSection({
 // ========================================
 
 interface ShortcutItemProps {
-  item: ShortcutItem;
+  item: ShortcutWrapper;
   isExecuting: boolean;
   executionResult: boolean | null;
   onExecute: () => void;

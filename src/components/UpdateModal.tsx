@@ -217,14 +217,14 @@ function DownloadingContent({ progress }: { progress: UpdateProgress }) {
       {/* Progress Bar */}
       <div className="relative h-3 bg-white/10 rounded-full overflow-hidden">
         <motion.div
-          className="absolute inset-y-0 left-0 bg-gradient-to-r from-[#0078d4] to-[#1a86d9] rounded-full"
+          className="absolute inset-y-0 left-0 bg-linear-to-r from-[#0078d4] to-[#1a86d9] rounded-full"
           initial={{ width: 0 }}
           animate={{ width: `${progress.percent}%` }}
           transition={{ duration: 0.3, ease: "easeOut" }}
         />
         {/* Shimmer effect */}
         <motion.div
-          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+          className="absolute inset-0 bg-linear-to-r from-transparent via-white/20 to-transparent"
           animate={{ x: ["-100%", "100%"] }}
           transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
         />
