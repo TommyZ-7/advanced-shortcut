@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
 use sysinfo::{ProcessesToUpdate, System};
 
 #[cfg(windows)]
@@ -109,20 +108,10 @@ pub struct WindowInfo {
 #[derive(Debug, Default, Clone, Serialize)]
 struct CliShortcutRequest {
     shortcut_id: String,
-    show_progress_window: bool,
-    close_after_execution: bool,
-}
-
-struct CliShortcutState {
-    request: Mutex<Option<CliShortcutRequest>>,
 }
 
 fn parse_cli_shortcut_request() -> Option<CliShortcutRequest> {
-    let mut request = CliShortcutRequest {
-        show_progress_window: true,
-        close_after_execution: false,
-        ..Default::default()
-    };
+    let mut request = CliShortcutRequest::default();
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -130,22 +119,6 @@ fn parse_cli_shortcut_request() -> Option<CliShortcutRequest> {
             "--execute-shortcut" => {
                 if let Some(id) = args.next() {
                     request.shortcut_id = id;
-                }
-            }
-            "--show-progress" => {
-                if let Some(value) = args.next() {
-                    request.show_progress_window = matches!(
-                        value.to_lowercase().as_str(),
-                        "true" | "1" | "yes" | "y"
-                    );
-                }
-            }
-            "--close-after" => {
-                if let Some(value) = args.next() {
-                    request.close_after_execution = matches!(
-                        value.to_lowercase().as_str(),
-                        "true" | "1" | "yes" | "y"
-                    );
                 }
             }
             _ => {}
@@ -159,10 +132,325 @@ fn parse_cli_shortcut_request() -> Option<CliShortcutRequest> {
     }
 }
 
-#[tauri::command]
-fn get_cli_shortcut_request(state: tauri::State<CliShortcutState>) -> Option<CliShortcutRequest> {
-    let mut guard = state.request.lock().ok()?;
-    guard.take()
+/// CLI引数からショートカットを直接実行する（フロントエンドを介さない）
+fn execute_shortcut_from_cli(request: &CliShortcutRequest) -> Result<(), String> {
+    // データをロードしてショートカットを検索
+    let app_data = load_app_data();
+    let shortcut = app_data
+        .shortcuts
+        .iter()
+        .find(|s| s.id == request.shortcut_id)
+        .ok_or_else(|| format!("Shortcut not found: {}", request.shortcut_id))?
+        .clone();
+
+    // 同期的にショートカットのアクションを実行
+    for action in shortcut.actions {
+        if let Err(e) = execute_action_sync(&action) {
+            eprintln!("Action error: {}", e);
+        }
+    }
+
+    Ok(())
+}
+
+/// アクションを同期的に実行する（CLI実行用）
+fn execute_action_sync(action: &Action) -> Result<String, String> {
+    match action {
+        Action::Launch {
+            path,
+            args,
+            window_config,
+        } => {
+            let exe_name = std::path::Path::new(&path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            #[cfg(windows)]
+            {
+                let existing_windows = window_control::find_windows_by_process_name(&exe_name);
+
+                if !existing_windows.is_empty() {
+                    if let Some(config) = window_config {
+                        for hwnd in existing_windows {
+                            if let Some((cur_x, cur_y, cur_w, cur_h)) =
+                                window_control::get_window_rect(hwnd)
+                            {
+                                let x = config.x.unwrap_or(cur_x);
+                                let y = config.y.unwrap_or(cur_y);
+                                let w = config.width.unwrap_or(cur_w);
+                                let h = config.height.unwrap_or(cur_h);
+                                let _ = window_control::set_window_position(hwnd, x, y, w, h);
+                            }
+                        }
+                    }
+                    return Ok(format!("Adjusted window for already running: {}", exe_name));
+                }
+            }
+
+            let mut cmd = Command::new(&path);
+            if let Some(arguments) = args {
+                cmd.args(arguments);
+            }
+
+            let child = cmd
+                .spawn()
+                .map_err(|e| format!("Failed to launch {}: {}", path, e))?;
+
+            #[cfg(windows)]
+            if let Some(config) = window_config {
+                let pid = child.id();
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+
+                for _ in 0..10 {
+                    if let Some(hwnd) = window_control::find_window_by_pid(pid) {
+                        let x = config.x.unwrap_or(0);
+                        let y = config.y.unwrap_or(0);
+                        let w = config.width.unwrap_or(800);
+                        let h = config.height.unwrap_or(600);
+                        let _ = window_control::set_window_position(hwnd, x, y, w, h);
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
+            }
+
+            Ok(format!("Launched: {}", path))
+        }
+
+        Action::Kill { process_name } => {
+            let mut sys = System::new_all();
+            sys.refresh_processes(ProcessesToUpdate::All, true);
+
+            let mut killed_count = 0;
+            for (_pid, process) in sys.processes() {
+                if process.name().to_string_lossy().to_lowercase() == process_name.to_lowercase() {
+                    process.kill();
+                    killed_count += 1;
+                }
+            }
+
+            if killed_count > 0 {
+                Ok(format!(
+                    "Killed {} instance(s) of {}",
+                    killed_count, process_name
+                ))
+            } else {
+                Err(format!("Process not found: {}", process_name))
+            }
+        }
+
+        Action::OpenFolder { path, window_config } => {
+            #[cfg(windows)]
+            let before_windows: std::collections::HashSet<isize> = if window_config.is_some() {
+                window_control::get_explorer_windows()
+                    .iter()
+                    .map(|(hwnd, _)| hwnd.0 as isize)
+                    .collect()
+            } else {
+                std::collections::HashSet::new()
+            };
+
+            open::that(&path).map_err(|e| format!("Failed to open folder {}: {}", path, e))?;
+
+            #[cfg(windows)]
+            if let Some(config) = window_config {
+                std::thread::sleep(std::time::Duration::from_millis(800));
+
+                let after_windows = window_control::get_explorer_windows();
+                
+                let new_window = after_windows.iter().find(|(hwnd, _)| {
+                    !before_windows.contains(&(hwnd.0 as isize))
+                });
+
+                let target_hwnd = if let Some((hwnd, _)) = new_window {
+                    Some(*hwnd)
+                } else {
+                    let folder_name = std::path::Path::new(&path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    
+                    after_windows.iter()
+                        .find(|(_, title)| title.contains(&folder_name))
+                        .map(|(hwnd, _)| *hwnd)
+                };
+
+                if let Some(hwnd) = target_hwnd {
+                    if let Some((cur_x, cur_y, cur_w, cur_h)) = window_control::get_window_rect(hwnd) {
+                        let x = config.x.unwrap_or(cur_x);
+                        let y = config.y.unwrap_or(cur_y);
+                        let w = config.width.unwrap_or(cur_w);
+                        let h = config.height.unwrap_or(cur_h);
+                        let _ = window_control::set_window_position(hwnd, x, y, w, h);
+                    }
+                }
+            }
+
+            Ok(format!("Opened folder: {}", path))
+        }
+
+        Action::OpenUrl { url, window_config } => {
+            #[cfg(windows)]
+            let before_windows: std::collections::HashSet<isize> = if window_config.is_some() {
+                let mut windows = std::collections::HashSet::new();
+                for browser in ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe"] {
+                    for (hwnd, _) in window_control::get_windows_by_process_name(browser) {
+                        windows.insert(hwnd.0 as isize);
+                    }
+                }
+                windows
+            } else {
+                std::collections::HashSet::new()
+            };
+
+            #[cfg(windows)]
+            {
+                use winreg::enums::*;
+                use winreg::RegKey;
+                
+                let mut opened = false;
+                
+                fn get_browser_path(prog_id: &str) -> Option<String> {
+                    let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
+                    let command_key = format!(r"{}\shell\open\command", prog_id);
+                    if let Ok(key) = hkcr.open_subkey(&command_key) {
+                        if let Ok(cmd) = key.get_value::<String, _>("") {
+                            let cmd = cmd.trim();
+                            if cmd.starts_with('"') {
+                                if let Some(end) = cmd[1..].find('"') {
+                                    return Some(cmd[1..end+1].to_string());
+                                }
+                            } else if let Some(end) = cmd.find(' ') {
+                                return Some(cmd[..end].to_string());
+                            } else {
+                                return Some(cmd.to_string());
+                            }
+                        }
+                    }
+                    None
+                }
+                
+                if let Ok(hkcu) = RegKey::predef(HKEY_CURRENT_USER)
+                    .open_subkey(r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\http\UserChoice")
+                {
+                    if let Ok(prog_id) = hkcu.get_value::<String, _>("ProgId") {
+                        if let Some(browser_path) = get_browser_path(&prog_id) {
+                            let prog_id_lower = prog_id.to_lowercase();
+                            
+                            let new_window_arg = if prog_id_lower.contains("firefox") {
+                                "-new-window"
+                            } else {
+                                "--new-window"
+                            };
+                            
+                            if Command::new(&browser_path)
+                                .args([new_window_arg, &url])
+                                .spawn()
+                                .is_ok()
+                            {
+                                opened = true;
+                            }
+                        }
+                    }
+                }
+                
+                if !opened {
+                    let browser_paths = [
+                        (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", "--new-window"),
+                        (r"C:\Program Files\Microsoft\Edge\Application\msedge.exe", "--new-window"),
+                        (r"C:\Program Files\Google\Chrome\Application\chrome.exe", "--new-window"),
+                        (r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe", "--new-window"),
+                        (r"C:\Program Files\Mozilla Firefox\firefox.exe", "-new-window"),
+                        (r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe", "--new-window"),
+                    ];
+                    
+                    for (path, arg) in browser_paths {
+                        if std::path::Path::new(path).exists() {
+                            if Command::new(path)
+                                .args([arg, &url])
+                                .spawn()
+                                .is_ok()
+                            {
+                                opened = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if !opened {
+                    let _ = Command::new("cmd")
+                        .args(["/c", "start", "", &url])
+                        .spawn()
+                        .map_err(|e| format!("Failed to open URL {}: {}", url, e))?;
+                }
+            }
+
+            #[cfg(not(windows))]
+            {
+                open::that(&url).map_err(|e| format!("Failed to open URL {}: {}", url, e))?;
+            }
+
+            #[cfg(windows)]
+            if let Some(config) = window_config {
+                std::thread::sleep(std::time::Duration::from_millis(1500));
+
+                let mut target_hwnd: Option<windows::Win32::Foundation::HWND> = None;
+                
+                unsafe {
+                    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+                    let fg_hwnd = GetForegroundWindow();
+                    if !fg_hwnd.is_invalid() {
+                        for browser in ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe"] {
+                            let browser_windows = window_control::get_windows_by_process_name(browser);
+                            for (hwnd, _) in &browser_windows {
+                                if hwnd.0 == fg_hwnd.0 {
+                                    target_hwnd = Some(*hwnd);
+                                    break;
+                                }
+                            }
+                            if target_hwnd.is_some() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if target_hwnd.is_none() {
+                    for browser in ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe"] {
+                        let after_windows = window_control::get_windows_by_process_name(browser);
+                        for (hwnd, _) in after_windows {
+                            if !before_windows.contains(&(hwnd.0 as isize)) {
+                                target_hwnd = Some(hwnd);
+                                break;
+                            }
+                        }
+                        if target_hwnd.is_some() {
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(hwnd) = target_hwnd {
+                    if let Some((cur_x, cur_y, cur_w, cur_h)) = window_control::get_window_rect(hwnd) {
+                        let x = config.x.unwrap_or(cur_x);
+                        let y = config.y.unwrap_or(cur_y);
+                        let w = config.width.unwrap_or(cur_w);
+                        let h = config.height.unwrap_or(cur_h);
+                        let _ = window_control::set_window_position(hwnd, x, y, w, h);
+                    }
+                }
+            }
+
+            Ok(format!("Opened URL: {}", url))
+        }
+
+        Action::Delay { ms } => {
+            std::thread::sleep(std::time::Duration::from_millis(*ms));
+            Ok(format!("Delayed for {}ms", ms))
+        }
+    }
 }
 
 #[tauri::command]
@@ -1118,8 +1406,6 @@ pub struct DesktopShortcutOptions {
     pub name: String,
     pub icon_path: Option<String>,
     pub icon_index: Option<i32>,
-    pub show_progress_window: bool,
-    pub close_after_execution: bool,
     pub custom_icon_data: Option<String>, // Base64 encoded image data
     pub border_radius: u32, // 0-50 for percentage
 }
@@ -1168,10 +1454,8 @@ fn create_windows_shortcut(
 
     // Create arguments for the shortcut execution
     let args = format!(
-        "--execute-shortcut {} --show-progress {} --close-after {}",
-        request.shortcut_id,
-        request.options.show_progress_window,
-        request.options.close_after_execution
+        "--execute-shortcut {}",
+        request.shortcut_id
     );
 
     // Process icon if custom icon data is provided
@@ -1479,16 +1763,28 @@ fn resolve_shortcut_link(lnk_path: String) -> Result<ShortcutResolveResponse, St
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let cli_request = parse_cli_shortcut_request();
+    // CLI引数をチェック
+    if let Some(cli_request) = parse_cli_shortcut_request() {
+        // CLI引数がある場合はフロントエンドを起動せずに直接ショートカットを実行
+        match execute_shortcut_from_cli(&cli_request) {
+            Ok(_) => {
+                // 正常終了
+                std::process::exit(0);
+            }
+            Err(e) => {
+                eprintln!("Error executing shortcut: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // CLI引数がない場合は通常のGUIアプリとして起動
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(CliShortcutState {
-            request: Mutex::new(cli_request),
-        })
         .invoke_handler(tauri::generate_handler![
             execute_action,
             execute_shortcut,
@@ -1505,7 +1801,6 @@ pub fn run() {
             save_app_data_cmd,
             create_desktop_shortcut,
             get_desktop_path,
-            get_cli_shortcut_request,
             exit_app,
         ])
         .run(tauri::generate_context!())

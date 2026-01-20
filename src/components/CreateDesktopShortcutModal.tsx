@@ -3,14 +3,7 @@ import { Upload, Folder, Monitor, ImageIcon, RotateCcw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
-import {
-  Button,
-  Input,
-  Toggle,
-  Modal,
-  IconPickerGrid,
-  IconDisplay,
-} from "./common";
+import { Button, Input, Modal, IconPickerGrid, IconDisplay } from "./common";
 import type { Shortcut, DesktopShortcutOptions } from "../types";
 
 type IconSourceType = "image" | "preset";
@@ -84,8 +77,6 @@ export function CreateDesktopShortcutModal({
 }: CreateDesktopShortcutModalProps) {
   // State
   const [name, setName] = useState(shortcut.name);
-  const [showProgressWindow, setShowProgressWindow] = useState(true);
-  const [closeAfterExecution, setCloseAfterExecution] = useState(false);
   const [borderRadius, setBorderRadius] = useState(20);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,8 +98,6 @@ export function CreateDesktopShortcutModal({
   useEffect(() => {
     if (isOpen) {
       setName(shortcut.name);
-      setShowProgressWindow(true);
-      setCloseAfterExecution(false);
       setBorderRadius(20);
       setIconSource("image");
       setSelectedPresetIcon("zap");
@@ -309,8 +298,6 @@ export function CreateDesktopShortcutModal({
       // Prepare options
       const options: DesktopShortcutOptions = {
         name,
-        showProgressWindow,
-        closeAfterExecution,
         borderRadius,
         customIconData: croppedImage
           ? croppedImage.replace(/^data:image\/\w+;base64,/, "")
@@ -351,8 +338,6 @@ export function CreateDesktopShortcutModal({
 
         const options: DesktopShortcutOptions = {
           name,
-          showProgressWindow,
-          closeAfterExecution,
           borderRadius,
           customIconData: croppedImage
             ? croppedImage.replace(/^data:image\/\w+;base64,/, "")
@@ -526,41 +511,6 @@ export function CreateDesktopShortcutModal({
             <div className="flex justify-between text-xs text-gray-600">
               <span>四角</span>
               <span>丸</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Behavior Options */}
-        <div className="space-y-4">
-          <label className="block text-sm font-medium text-gray-300">
-            動作設定
-          </label>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
-              <div>
-                <p className="text-sm text-white">進行状況ウィンドウを表示</p>
-                <p className="text-xs text-gray-500">
-                  ショートカット実行中に進行状況を表示します
-                </p>
-              </div>
-              <Toggle
-                checked={showProgressWindow}
-                onChange={setShowProgressWindow}
-              />
-            </div>
-
-            <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
-              <div>
-                <p className="text-sm text-white">実行後にアプリを終了</p>
-                <p className="text-xs text-gray-500">
-                  ショートカット実行完了後にAdvanced Shortcutを終了します
-                </p>
-              </div>
-              <Toggle
-                checked={closeAfterExecution}
-                onChange={setCloseAfterExecution}
-              />
             </div>
           </div>
         </div>

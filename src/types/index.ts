@@ -91,8 +91,6 @@ export interface DesktopShortcutOptions {
   name: string;
   iconPath?: string;
   iconIndex?: number;
-  showProgressWindow: boolean;
-  closeAfterExecution: boolean;
   customIconData?: string; // Base64 encoded ICO data
   borderRadius: number; // 0-50 for icon corner radius percentage
 }
@@ -101,14 +99,4 @@ export interface CreateDesktopShortcutRequest {
   shortcutId: string;
   targetPath: string; // Path to save the .lnk file
   options: DesktopShortcutOptions;
-}
-
-// ========================================
-// CLI Shortcut Execution
-// ========================================
-
-export interface CliShortcutRequest {
-  shortcutId: string;
-  showProgressWindow: boolean;
-  closeAfterExecution: boolean;
 }
