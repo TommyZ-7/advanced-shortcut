@@ -104,7 +104,7 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
           animate={{ opacity: 1 }}
           className="p-4 border-t border-white/5"
         >
-          <p className="text-xs text-gray-500 text-center">v0.5.0</p>
+          <p className="text-xs text-gray-500 text-center">v0.6.0</p>
         </motion.div>
       )}
     </motion.aside>
