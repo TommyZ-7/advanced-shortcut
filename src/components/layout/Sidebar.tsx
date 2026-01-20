@@ -63,15 +63,13 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
           const Icon = item.icon;
 
           return (
-            <motion.button
+            <button
               key={item.id}
               onClick={() => onPageChange(item.id)}
-              whileHover={{ backgroundColor: "rgba(255, 255, 255, 0.08)" }}
-              whileTap={{ scale: 0.98 }}
               className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
                 isActive
                   ? "bg-white/10 text-white"
-                  : "text-gray-400 hover:text-white"
+                  : "text-gray-400 hover:text-white hover:bg-white/5"
               }`}
             >
               <Icon className="w-5 h-5 shrink-0" />
@@ -88,13 +86,13 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
               {/* Active indicator */}
               {isActive && (
                 <motion.div
-                  layoutId="activeIndicator"
+                  layoutId="sidebarActiveIndicator"
                   className="absolute left-0 w-0.75 h-4 bg-[#0078d4] rounded-r-full"
                   transition={{ type: "spring", stiffness: 500, damping: 35 }}
                   style={{ x: 0 }}
                 />
               )}
-            </motion.button>
+            </button>
           );
         })}
       </nav>
