@@ -82,3 +82,23 @@ export interface NavItem {
 }
 
 export type ModalType = "shortcut" | "group" | "action" | null;
+
+// ========================================
+// Desktop Shortcut Types
+// ========================================
+
+export interface DesktopShortcutOptions {
+  name: string;
+  iconPath?: string;
+  iconIndex?: number;
+  showProgressWindow: boolean;
+  closeAfterExecution: boolean;
+  customIconData?: string; // Base64 encoded ICO data
+  borderRadius: number; // 0-50 for icon corner radius percentage
+}
+
+export interface CreateDesktopShortcutRequest {
+  shortcutId: string;
+  targetPath: string; // Path to save the .lnk file
+  options: DesktopShortcutOptions;
+}

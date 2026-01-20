@@ -11,6 +11,7 @@ import {
   Modal,
   IconDisplay,
   IconPickerGrid,
+  ConfirmDialog,
 } from "../common";
 
 const PRESET_COLORS = [
@@ -41,6 +42,8 @@ export function GroupsPage({
 }: GroupsPageProps) {
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [groupToDelete, setGroupToDelete] = useState<Group | null>(null);
   const [newGroup, setNewGroup] = useState<Partial<Group>>({
     name: "",
     color: PRESET_COLORS[0],
@@ -74,12 +77,14 @@ export function GroupsPage({
 
   const handleDelete = (group: Group) => {
     if (group.id === "default") return;
-    if (
-      confirm(
-        `グループ「${group.name}」を削除しますか？\nショートカットはデフォルトグループに移動します。`,
-      )
-    ) {
-      onDelete(group.id);
+    setGroupToDelete(group);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (groupToDelete) {
+      onDelete(groupToDelete.id);
+      setGroupToDelete(null);
     }
   };
 
@@ -253,6 +258,21 @@ export function GroupsPage({
           </div>
         )}
       </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteConfirmOpen}
+        onClose={() => {
+          setDeleteConfirmOpen(false);
+          setGroupToDelete(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        title="グループを削除"
+        message={`「${groupToDelete?.name || ""}」を削除しますか？\nこのグループ内のショートカットはデフォルトグループに移動します。`}
+        confirmText="削除"
+        cancelText="キャンセル"
+        variant="danger"
+      />
     </div>
   );
 }

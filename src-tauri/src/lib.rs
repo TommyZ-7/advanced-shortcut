@@ -4,6 +4,11 @@ use std::path::PathBuf;
 use std::process::Command;
 use sysinfo::{ProcessesToUpdate, System};
 
+#[cfg(windows)]
+use base64::Engine;
+#[cfg(windows)]
+use image::{Rgba, RgbaImage};
+
 // ========================================
 // Data Types
 // ========================================
@@ -1034,6 +1039,294 @@ pub struct ShortcutResolveResponse {
     args: String,
 }
 
+// ========================================
+// Desktop Shortcut Creation
+// ========================================
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopShortcutOptions {
+    pub name: String,
+    pub icon_path: Option<String>,
+    pub icon_index: Option<i32>,
+    pub show_progress_window: bool,
+    pub close_after_execution: bool,
+    pub custom_icon_data: Option<String>, // Base64 encoded image data
+    pub border_radius: u32, // 0-50 for percentage
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDesktopShortcutRequest {
+    pub shortcut_id: String,
+    pub target_path: String,
+    pub options: DesktopShortcutOptions,
+}
+
+#[tauri::command]
+fn create_desktop_shortcut(
+    app_handle: tauri::AppHandle,
+    request: CreateDesktopShortcutRequest,
+) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        create_windows_shortcut(&app_handle, &request)
+    }
+
+    #[cfg(not(windows))]
+    {
+        Err("Desktop shortcuts are only supported on Windows".to_string())
+    }
+}
+
+#[cfg(windows)]
+fn create_windows_shortcut(
+    _app_handle: &tauri::AppHandle,
+    request: &CreateDesktopShortcutRequest,
+) -> Result<String, String> {
+    use windows::core::{Interface, PCWSTR};
+    use windows::Win32::System::Com::IPersistFile;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
+        COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+
+    // Get the current executable path
+    let exe_path = std::env::current_exe()
+        .map_err(|e| format!("Failed to get executable path: {}", e))?;
+    let exe_path_str = exe_path.to_string_lossy().to_string();
+
+    // Create arguments for the shortcut execution
+    let args = format!(
+        "--execute-shortcut {} --show-progress {} --close-after {}",
+        request.shortcut_id,
+        request.options.show_progress_window,
+        request.options.close_after_execution
+    );
+
+    // Process icon if custom icon data is provided
+    let icon_path = if let Some(icon_data) = &request.options.custom_icon_data {
+        // Create icons directory in app data
+        let icons_dir = get_icons_dir();
+        if !icons_dir.exists() {
+            fs::create_dir_all(&icons_dir)
+                .map_err(|e| format!("Failed to create icons directory: {}", e))?;
+        }
+
+        // Create ICO file from the base64 image data
+        let ico_path = icons_dir.join(format!("{}.ico", request.shortcut_id));
+        create_ico_from_base64(icon_data, &ico_path, request.options.border_radius)?;
+        Some(ico_path.to_string_lossy().to_string())
+    } else {
+        request.options.icon_path.clone()
+    };
+
+    unsafe {
+        // Initialize COM
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+
+        // Create ShellLink instance
+        let shell_link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)
+            .map_err(|e| format!("Failed to create ShellLink: {}", e))?;
+
+        // Set target path (the app executable)
+        let wide_target: Vec<u16> = exe_path_str.encode_utf16().chain(std::iter::once(0)).collect();
+        shell_link
+            .SetPath(PCWSTR(wide_target.as_ptr()))
+            .map_err(|e| format!("Failed to set path: {}", e))?;
+
+        // Set arguments
+        let wide_args: Vec<u16> = args.encode_utf16().chain(std::iter::once(0)).collect();
+        shell_link
+            .SetArguments(PCWSTR(wide_args.as_ptr()))
+            .map_err(|e| format!("Failed to set arguments: {}", e))?;
+
+        // Set working directory
+        let working_dir = exe_path.parent().unwrap_or(&exe_path);
+        let wide_working_dir: Vec<u16> = working_dir
+            .to_string_lossy()
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        shell_link
+            .SetWorkingDirectory(PCWSTR(wide_working_dir.as_ptr()))
+            .map_err(|e| format!("Failed to set working directory: {}", e))?;
+
+        // Set icon
+        if let Some(icon) = &icon_path {
+            let wide_icon: Vec<u16> = icon.encode_utf16().chain(std::iter::once(0)).collect();
+            let icon_index = request.options.icon_index.unwrap_or(0);
+            shell_link
+                .SetIconLocation(PCWSTR(wide_icon.as_ptr()), icon_index)
+                .map_err(|e| format!("Failed to set icon: {}", e))?;
+        }
+
+        // Set description
+        let description = format!("Advanced Shortcut - {}", request.options.name);
+        let wide_desc: Vec<u16> = description.encode_utf16().chain(std::iter::once(0)).collect();
+        shell_link
+            .SetDescription(PCWSTR(wide_desc.as_ptr()))
+            .map_err(|e| format!("Failed to set description: {}", e))?;
+
+        // Get IPersistFile interface and save
+        let persist_file: IPersistFile = shell_link
+            .cast()
+            .map_err(|e| format!("Failed to get IPersistFile: {}", e))?;
+
+        // Ensure target path ends with .lnk
+        let lnk_path = if request.target_path.ends_with(".lnk") {
+            request.target_path.clone()
+        } else {
+            format!("{}.lnk", request.target_path)
+        };
+
+        let wide_lnk_path: Vec<u16> = lnk_path.encode_utf16().chain(std::iter::once(0)).collect();
+        persist_file
+            .Save(PCWSTR(wide_lnk_path.as_ptr()), true)
+            .map_err(|e| format!("Failed to save shortcut: {}", e))?;
+
+        CoUninitialize();
+    }
+
+    Ok(format!("Created shortcut: {}", request.target_path))
+}
+
+#[cfg(windows)]
+fn get_icons_dir() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("advanced-shortcut")
+        .join("icons")
+}
+
+#[cfg(windows)]
+fn create_ico_from_base64(base64_data: &str, output_path: &PathBuf, border_radius: u32) -> Result<(), String> {
+    // Decode base64 data
+    let image_data = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+
+    // Load image
+    let img = image::load_from_memory(&image_data)
+        .map_err(|e| format!("Failed to load image: {}", e))?;
+
+    // Resize to standard icon sizes
+    let sizes = [256, 128, 64, 48, 32, 16];
+    let mut icon_dir = ico::IconDir::new(ico::ResourceType::Icon);
+
+    for size in sizes {
+        // Resize image
+        let resized = img.resize_exact(size, size, image::imageops::FilterType::Lanczos3);
+        let mut rgba_img = resized.to_rgba8();
+
+        // Apply border radius if > 0
+        if border_radius > 0 {
+            apply_rounded_corners(&mut rgba_img, border_radius);
+        }
+
+        // Convert to ICO image entry
+        let width = rgba_img.width();
+        let height = rgba_img.height();
+        let raw_data = rgba_img.into_raw();
+
+        let ico_image = ico::IconImage::from_rgba_data(width, height, raw_data);
+        icon_dir.add_entry(ico::IconDirEntry::encode(&ico_image)
+            .map_err(|e| format!("Failed to encode icon: {}", e))?);
+    }
+
+    // Save ICO file
+    let file = fs::File::create(output_path)
+        .map_err(|e| format!("Failed to create ico file: {}", e))?;
+    icon_dir.write(file)
+        .map_err(|e| format!("Failed to write ico file: {}", e))?;
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn apply_rounded_corners(img: &mut RgbaImage, radius_percent: u32) {
+    let width = img.width();
+    let height = img.height();
+    let radius = (width.min(height) as f64 * radius_percent as f64 / 100.0) as u32;
+
+    if radius == 0 {
+        return;
+    }
+
+    for y in 0..height {
+        for x in 0..width {
+            let in_corner = is_in_rounded_corner(x, y, width, height, radius);
+            if !in_corner {
+                continue;
+            }
+
+            // Calculate distance from corner center
+            let (cx, cy) = get_corner_center(x, y, width, height, radius);
+            let dx = x as f64 - cx;
+            let dy = y as f64 - cy;
+            let distance = (dx * dx + dy * dy).sqrt();
+
+            if distance > radius as f64 {
+                // Outside rounded corner - make transparent
+                img.put_pixel(x, y, Rgba([0, 0, 0, 0]));
+            } else if distance > (radius as f64 - 1.5) {
+                // Anti-aliasing at the edge
+                let alpha = ((radius as f64 - distance) / 1.5 * 255.0).clamp(0.0, 255.0) as u8;
+                let mut pixel = *img.get_pixel(x, y);
+                pixel[3] = (pixel[3] as u32 * alpha as u32 / 255) as u8;
+                img.put_pixel(x, y, pixel);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn is_in_rounded_corner(x: u32, y: u32, width: u32, height: u32, radius: u32) -> bool {
+    // Top-left
+    if x < radius && y < radius {
+        return true;
+    }
+    // Top-right
+    if x >= width - radius && y < radius {
+        return true;
+    }
+    // Bottom-left
+    if x < radius && y >= height - radius {
+        return true;
+    }
+    // Bottom-right
+    if x >= width - radius && y >= height - radius {
+        return true;
+    }
+    false
+}
+
+#[cfg(windows)]
+fn get_corner_center(x: u32, y: u32, width: u32, height: u32, radius: u32) -> (f64, f64) {
+    // Top-left
+    if x < radius && y < radius {
+        return (radius as f64, radius as f64);
+    }
+    // Top-right
+    if x >= width - radius && y < radius {
+        return ((width - radius) as f64, radius as f64);
+    }
+    // Bottom-left
+    if x < radius && y >= height - radius {
+        return (radius as f64, (height - radius) as f64);
+    }
+    // Bottom-right
+    ((width - radius) as f64, (height - radius) as f64)
+}
+
+#[tauri::command]
+fn get_desktop_path() -> Result<String, String> {
+    dirs::desktop_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "Failed to get desktop path".to_string())
+}
+
 #[tauri::command]
 fn resolve_shortcut_link(lnk_path: String) -> Result<ShortcutResolveResponse, String> {
     #[cfg(windows)]
@@ -1137,6 +1430,8 @@ pub fn run() {
             resolve_shortcut_link,
             get_app_data,
             save_app_data_cmd,
+            create_desktop_shortcut,
+            get_desktop_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

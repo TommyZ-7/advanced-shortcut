@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { X, AlertTriangle } from "lucide-react";
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "./FormElements";
 
 interface ModalProps {
@@ -9,15 +10,25 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   width?: string;
+  size?: "sm" | "md" | "lg" | "xl";
 }
+
+const sizeClasses = {
+  sm: "max-w-md",
+  md: "max-w-2xl",
+  lg: "max-w-3xl",
+  xl: "max-w-4xl",
+};
 
 export function Modal({
   isOpen,
   onClose,
   title,
   children,
-  width = "max-w-2xl",
+  width,
+  size = "md",
 }: ModalProps) {
+  const widthClass = width || sizeClasses[size];
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -34,7 +45,7 @@ export function Modal({
     };
   }, [isOpen, onClose]);
 
-  return (
+  const content = (
     <AnimatePresence>
       {isOpen && (
         <motion.div
@@ -62,7 +73,7 @@ export function Modal({
               duration: 0.2,
               ease: [0.16, 1, 0.3, 1],
             }}
-            className={`relative ${width} w-full bg-[#2d2d2d] rounded-lg shadow-2xl border border-white/10 overflow-hidden`}
+            className={`relative ${widthClass} w-full bg-[#2d2d2d] rounded-lg shadow-2xl border border-white/10 overflow-hidden`}
           >
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
@@ -82,6 +93,9 @@ export function Modal({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
 }
 
 // ========================================
@@ -136,7 +150,7 @@ export function ConfirmDialog({
     onClose();
   };
 
-  return (
+  const content = (
     <AnimatePresence>
       {isOpen && (
         <motion.div
@@ -196,4 +210,7 @@ export function ConfirmDialog({
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(content, document.body);
 }

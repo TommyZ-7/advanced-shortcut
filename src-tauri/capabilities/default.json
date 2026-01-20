@@ -13,6 +13,10 @@
     "shell:default",
     "dialog:default",
     "fs:default",
+    {
+      "identifier": "fs:allow-read",
+      "allow": [{ "path": "**" }]
+    },
     "updater:default"
   ]
 }

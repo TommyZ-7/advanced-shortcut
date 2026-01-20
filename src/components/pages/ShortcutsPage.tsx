@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Zap,
   GripVertical,
+  ExternalLink,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { Shortcut, Group } from "../../types";
@@ -18,6 +19,7 @@ import {
   Spinner,
   IconDisplay,
 } from "../common";
+import { CreateDesktopShortcutModal } from "../CreateDesktopShortcutModal";
 
 interface ShortcutsPageProps {
   shortcuts: Shortcut[];
@@ -47,6 +49,10 @@ export function ShortcutsPage({
     id: string;
     success: boolean;
   } | null>(null);
+  const [desktopShortcutModal, setDesktopShortcutModal] =
+    useState<Shortcut | null>(null);
+  const [isDesktopShortcutModalOpen, setIsDesktopShortcutModalOpen] =
+    useState(false);
 
   const handleExecute = async (shortcut: Shortcut) => {
     setExecutingId(shortcut.id);
@@ -117,11 +123,24 @@ export function ShortcutsPage({
                 onExecute={handleExecute}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onCreateDesktopShortcut={(shortcut) => {
+                  setDesktopShortcutModal(shortcut);
+                  setIsDesktopShortcutModalOpen(true);
+                }}
                 onReorder={(newOrder) => onReorderShortcuts(group.id, newOrder)}
               />
             );
           })}
         </div>
+      )}
+
+      {/* Desktop Shortcut Modal */}
+      {desktopShortcutModal && (
+        <CreateDesktopShortcutModal
+          isOpen={isDesktopShortcutModalOpen}
+          onClose={() => setIsDesktopShortcutModalOpen(false)}
+          shortcut={desktopShortcutModal}
+        />
       )}
     </div>
   );
@@ -140,6 +159,7 @@ interface GroupSectionProps {
   onExecute: (shortcut: Shortcut) => void;
   onEdit: (shortcut: Shortcut) => void;
   onDelete: (shortcut: Shortcut) => void;
+  onCreateDesktopShortcut: (shortcut: Shortcut) => void;
   onReorder: (shortcuts: Shortcut[]) => void;
 }
 
@@ -155,6 +175,7 @@ function GroupSection({
   onExecute,
   onEdit,
   onDelete,
+  onCreateDesktopShortcut,
   onReorder,
 }: GroupSectionProps) {
   // Use wrapper objects with stable IDs for Reorder
@@ -212,6 +233,9 @@ function GroupSection({
                 onExecute={() => onExecute(item.shortcut)}
                 onEdit={() => onEdit(item.shortcut)}
                 onDelete={() => onDelete(item.shortcut)}
+                onCreateDesktopShortcut={() =>
+                  onCreateDesktopShortcut(item.shortcut)
+                }
               />
             ))}
           </Reorder.Group>
@@ -232,6 +256,7 @@ interface ShortcutItemProps {
   onExecute: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCreateDesktopShortcut: () => void;
 }
 
 function ShortcutItem({
@@ -241,6 +266,7 @@ function ShortcutItem({
   onExecute,
   onEdit,
   onDelete,
+  onCreateDesktopShortcut,
 }: ShortcutItemProps) {
   const { shortcut } = item;
 
@@ -283,13 +309,23 @@ function ShortcutItem({
                 ? "bg-[#0078d4] text-white"
                 : "hover:bg-white/10 text-gray-400 hover:text-white"
             }`}
+            title="実行"
           >
             {isExecuting ? <Spinner size="sm" /> : <Play className="w-5 h-5" />}
           </button>
 
           <button
+            onClick={onCreateDesktopShortcut}
+            className="p-2 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+            title="デスクトップショートカットを作成"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </button>
+
+          <button
             onClick={onEdit}
             className="p-2 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+            title="編集"
           >
             <Pencil className="w-4 h-4" />
           </button>
@@ -297,6 +333,7 @@ function ShortcutItem({
           <button
             onClick={onDelete}
             className="p-2 rounded-lg hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition-colors"
+            title="削除"
           >
             <Trash2 className="w-4 h-4" />
           </button>
