@@ -1,6 +1,8 @@
-import { SectionHeader, Card, Toggle } from "../common";
-import { Monitor, Moon, Bell } from "lucide-react";
+import { SectionHeader, Card, Toggle, Button } from "../common";
+import { Monitor, Moon, Bell, Download, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { useUpdater } from "../../hooks/useUpdater";
+import { UpdateModal } from "../UpdateModal";
 
 export function SettingsPage() {
   const [settings, setSettings] = useState({
@@ -9,6 +11,22 @@ export function SettingsPage() {
     startMinimized: false,
     runAtStartup: false,
   });
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+
+  const {
+    status: updateStatus,
+    updateInfo,
+    progress: updateProgress,
+    error: updateError,
+    checkForUpdates,
+    downloadAndInstall,
+    dismissUpdate,
+  } = useUpdater();
+
+  const handleCheckForUpdates = async () => {
+    setUpdateModalOpen(true);
+    await checkForUpdates(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -71,6 +89,27 @@ export function SettingsPage() {
         </SettingItem>
       </Card>
 
+      {/* アップデート */}
+      <Card hover={false} className="p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-2 rounded-lg bg-[#0078d4]/20 text-[#0078d4]">
+              <Download className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-medium text-white">アップデート</h3>
+              <p className="text-sm text-gray-500">
+                新しいバージョンを確認して更新
+              </p>
+            </div>
+          </div>
+          <Button variant="secondary" onClick={handleCheckForUpdates}>
+            <RefreshCw className="w-4 h-4" />
+            アップデートを確認
+          </Button>
+        </div>
+      </Card>
+
       <Card hover={false} className="p-6">
         <h3 className="text-lg font-semibold text-white mb-4">データ管理</h3>
         <div className="space-y-3">
@@ -94,6 +133,20 @@ export function SettingsPage() {
           </button>
         </div>
       </Card>
+
+      <UpdateModal
+        isOpen={updateModalOpen}
+        onClose={() => {
+          setUpdateModalOpen(false);
+          dismissUpdate();
+        }}
+        status={updateStatus}
+        updateInfo={updateInfo}
+        progress={updateProgress}
+        error={updateError}
+        onUpdate={downloadAndInstall}
+        onCheckAgain={() => checkForUpdates(false)}
+      />
     </div>
   );
 }

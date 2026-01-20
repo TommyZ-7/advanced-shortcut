@@ -15,6 +15,7 @@
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-updater": "^2.9.0",
     "framer-motion": "^12.27.1",
     "lucide-react": "^0.562.0",
     "react": "^19.1.0",
