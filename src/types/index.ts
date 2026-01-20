@@ -102,3 +102,13 @@ export interface CreateDesktopShortcutRequest {
   targetPath: string; // Path to save the .lnk file
   options: DesktopShortcutOptions;
 }
+
+// ========================================
+// CLI Shortcut Execution
+// ========================================
+
+export interface CliShortcutRequest {
+  shortcutId: string;
+  showProgressWindow: boolean;
+  closeAfterExecution: boolean;
+}

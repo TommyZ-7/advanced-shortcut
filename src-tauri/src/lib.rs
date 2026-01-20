@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Mutex;
 use sysinfo::{ProcessesToUpdate, System};
 
 #[cfg(windows)]
@@ -99,6 +100,74 @@ pub struct WindowInfo {
     pub y: i32,
     pub width: i32,
     pub height: i32,
+}
+
+// ========================================
+// CLI Shortcut Execution
+// ========================================
+
+#[derive(Debug, Default, Clone, Serialize)]
+struct CliShortcutRequest {
+    shortcut_id: String,
+    show_progress_window: bool,
+    close_after_execution: bool,
+}
+
+struct CliShortcutState {
+    request: Mutex<Option<CliShortcutRequest>>,
+}
+
+fn parse_cli_shortcut_request() -> Option<CliShortcutRequest> {
+    let mut request = CliShortcutRequest {
+        show_progress_window: true,
+        close_after_execution: false,
+        ..Default::default()
+    };
+
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--execute-shortcut" => {
+                if let Some(id) = args.next() {
+                    request.shortcut_id = id;
+                }
+            }
+            "--show-progress" => {
+                if let Some(value) = args.next() {
+                    request.show_progress_window = matches!(
+                        value.to_lowercase().as_str(),
+                        "true" | "1" | "yes" | "y"
+                    );
+                }
+            }
+            "--close-after" => {
+                if let Some(value) = args.next() {
+                    request.close_after_execution = matches!(
+                        value.to_lowercase().as_str(),
+                        "true" | "1" | "yes" | "y"
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if request.shortcut_id.is_empty() {
+        None
+    } else {
+        Some(request)
+    }
+}
+
+#[tauri::command]
+fn get_cli_shortcut_request(state: tauri::State<CliShortcutState>) -> Option<CliShortcutRequest> {
+    let mut guard = state.request.lock().ok()?;
+    guard.take()
+}
+
+#[tauri::command]
+fn exit_app(app_handle: tauri::AppHandle, code: i32) {
+    app_handle.exit(code);
 }
 
 // ========================================
@@ -1410,12 +1479,16 @@ fn resolve_shortcut_link(lnk_path: String) -> Result<ShortcutResolveResponse, St
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let cli_request = parse_cli_shortcut_request();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(CliShortcutState {
+            request: Mutex::new(cli_request),
+        })
         .invoke_handler(tauri::generate_handler![
             execute_action,
             execute_shortcut,
@@ -1432,6 +1505,8 @@ pub fn run() {
             save_app_data_cmd,
             create_desktop_shortcut,
             get_desktop_path,
+            get_cli_shortcut_request,
+            exit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
